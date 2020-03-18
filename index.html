@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Markdown Database</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="https://rawgit.com/farzher/fuzzysort/master/fuzzysort.js"></script>
+        <script src="https://unpkg.com/showdown/dist/showdown.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.js"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
+        <script src="https://cdn.jsdelivr.net/npm/katex/dist/contrib/auto-render.min.js"></script>
+        <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    </head>
+
+    <body>
+        <div id="search-bar">
+            <span id="search-icon">⌕</span>
+            <input id="search-box" type="text" />
+        </div>
+        <ul id="search-list"></ul>
+        <div id="text-root">
+            <pre id="help">
+  Ctrl-/              : Start serach
+  Ctrl-J or ArrowDown : Next file
+  Ctrl-K or ArrowUp   : Previous file
+  Enter               : Select file
+  Ctrl-C              : Exit search
+            </pre>
+        </div>
+    </body>
+
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            max-width: 600px;
+            margin: 0 auto;
+            margin-bottom: 40px;
+            padding: 0 20px;
+            font-family: sans-serif;
+            font-size: 16px;
+        }
+
+
+        /* NOTE: This prevents the scrollbar changes the page layout on desktop */
+        @media (min-width: 1000px) {
+            body {
+                padding-left: calc(100vw - 100%);
+            }
+        }
+
+        #search-bar {
+            margin: 10px 0;
+            display: flex;
+        }
+
+        #search-icon {
+            position: relative;
+            top: 3px;
+            font-size: 36px;
+        }
+
+        #search-box {
+            flex-grow: 1;
+            padding-top: 12px;
+            margin-left: 5px;
+            font-size: 16px;
+            outline: none;
+            border: none;
+            border-bottom: 1px black solid;
+        }
+
+        #search-list, #search-list li {
+            /* NOTE: This is needed to calculate scroll offset correctly */
+            position: relative;
+        }
+
+        #search-list {
+            max-height: 120px;
+            overflow: auto;
+            list-style: none;
+            padding: 0;
+        }
+
+        #search-list li {
+            line-height: 20px;
+            margin: 4px 0;
+            cursor: pointer;
+            width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #search-list li:first-child {
+            margin-top: 0;
+        }
+
+        #search-list li.active:before {
+            content: '\00a0➤\00a0\00a0\00a0';
+        }
+
+        #search-list li:not(.active):before {
+            content: '\00a0\00a0\00a0\00a0\00a0\00a0';
+        }
+
+        pre {
+            width: 100%;
+            overflow: auto;
+        }
+
+        h1, h2, h3, h4, h5, h6, p {
+            overflow-wrap: break-word;
+            text-align: justify;
+        }
+
+        img {
+            max-width: 100%;
+            display: block;
+            margin: 0 auto;
+        }
+
+    </style>
+
+    <script>
+        let converter = new showdown.Converter({metadata: true});
+
+        let search_box = document.getElementById('search-box');
+        let search_list = document.getElementById('search-list');
+        let text_root = document.getElementById('text-root');
+
+        fetch('/_db').then(res => {
+            res.text().then(text => {
+                db = JSON.parse(text);
+                keywords = Object.keys(db);
+                pointer = 0;
+
+                let request_file = file => {
+                    fetch(`/_file/${file}`).then(res => {
+                        res.text().then(text => {
+                            let html = converter.makeHtml(text);
+                            text_root.innerHTML = html;
+
+                            Array.from(text_root.querySelectorAll('code.math')).forEach(code => {
+                                let p = document.createElement('p');
+                                katex_html = katex.renderToString(code.innerText, {
+                                    displayMode: true,
+                                    throwOnError: false,
+                                });
+                                p.innerHTML = katex_html;
+                                code.replaceWith(p);
+                            });
+                            renderMathInElement(text_root, {
+                                throwOnError: false,
+                                delimiters: [
+                                    {left: "$", right: "$", display: false},
+                                ]
+                            });
+
+                            // NOTE: Make all images go through /_file interface
+                            let fix_url = url => {
+                                url = new URL(url);
+                                if (url.hostname === window.location.hostname)  {
+                                    url.pathname = `/_file${url.pathname}`;
+                                }
+                                return url.toString();
+                            }
+                            Array.from(text_root.querySelectorAll('img')).forEach(img => {
+                                img.src = fix_url(img.src);
+                            });
+
+                            // NOTE: Intercept link mousedown and trigger click manually so that
+                            // search suggestions re-layout caused by blur doesn't interfere
+                            Array.from(text_root.querySelectorAll('a')).forEach(a => {
+                                a.addEventListener('mousedown', e => {
+                                    a.dispatchEvent(new MouseEvent('click', e));
+                                });
+                            });
+                        });
+                    })
+                };
+
+                let goto_file = file => {
+                    window.history.pushState(null, null, `/${file}`);
+                    request_file(file);
+                };
+
+                if (window.location.pathname !== '/') {
+                    request_file(window.location.pathname.substring(1));
+                }
+
+                let refresh_pointer = (new_pointer, scroll = true) => {
+                    let entries = search_list.childNodes;
+                    if (entries[pointer]) {
+                        entries[pointer].classList.remove('active');
+                    }
+                    pointer = Math.max(0, Math.min(entries.length - 1, new_pointer));
+                    if (entries[pointer]) {
+                        let entry = entries[pointer];
+                        entry.classList.add('active');
+                        if (scroll) {
+                            // NOTE: Keep active entry in the middle.
+                            // This depends on each entry is 24px high
+                            search_list.scrollTop = entry.offsetTop - 48;
+                        }
+                    }
+                };
+
+                let refresh_serach_list = () => {
+                    let searches = search_box.value.split(/\s+/).filter(x => x).map(x => x.trim());
+                    let all_hits = searches.map(x => {
+                        let hits = fuzzysort.go(x, keywords);
+                        hits = new Set(hits.flatMap(x => db[x.target]));
+                        return hits;
+                    });
+                    let hits = [];
+                    if (all_hits.length > 0) {
+                        hits = [...all_hits[0]];
+                        for (let i = 1; i < all_hits.length; i++) {
+                            hits = hits.filter(x => all_hits[i].has(x));
+                        }
+                    }
+
+                    search_list.innerHTML = '';
+                    for (let i = 0; i < hits.length; i++) {
+                        let match = hits[i];
+                        let entry = document.createElement('li');
+                        entry.className = 'search-entry';
+                        entry.title = match;
+                        entry.innerHTML = match;
+                        entry.addEventListener('mouseenter', () => {
+                            let index = Array.from(search_list.children).indexOf(entry);
+                            refresh_pointer(index, false);
+                        });
+                        entry.addEventListener('mousedown', () => {
+                            goto_file(entry.innerHTML);
+                        });
+                        search_list.appendChild(entry);
+                    }
+                };
+
+                let clear_search_list = () => {
+                    search_list.innerHTML = '';
+                };
+
+                window.addEventListener('keydown', event => {
+                    if (event.ctrlKey && event.key === '/') {
+                        event.preventDefault();
+                        search_box.focus();
+                    }
+                });
+                search_box.addEventListener('keydown', event => {
+                    if (event.ctrlKey && event.key === 'j' || event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        refresh_pointer(pointer + 1);
+                    } else if (event.ctrlKey && event.key === 'k' || event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        refresh_pointer(pointer - 1);
+                    } else if (event.ctrlKey && event.key === 'c') {
+                        event.preventDefault();
+                        search_box.blur();
+                    } else if (event.key === 'Enter') {
+                        event.preventDefault();
+                        goto_file(search_list.childNodes[pointer].innerHTML);
+                    }
+                });
+                search_box.addEventListener('input', event => {
+                    refresh_serach_list();
+                    refresh_pointer(pointer);
+                });
+                search_box.addEventListener('focus', event => {
+                    refresh_serach_list();
+                    refresh_pointer(pointer);
+                });
+                search_box.addEventListener('blur', event => {
+                    clear_search_list();
+                });
+            });
+        });
+    </script>
+</html>
+
