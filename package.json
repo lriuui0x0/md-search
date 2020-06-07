@@ -2,7 +2,6 @@
   "dependencies": {
     "chokidar": "latest",
     "express": "latest",
-    "gray-matter": "latest",
     "ws": "latest",
     "yargs": "latest"
   }

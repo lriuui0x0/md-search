@@ -3,7 +3,6 @@
     <head>
         <title>Markdown Database</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <script src="https://rawgit.com/farzher/fuzzysort/master/fuzzysort.js"></script>
         <script src="https://unpkg.com/showdown/dist/showdown.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.js"></script>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
@@ -133,7 +132,6 @@
         fetch('/_db').then(res => {
             res.text().then(text => {
                 db = JSON.parse(text);
-                keywords = Object.keys(db);
                 pointer = 0;
 
                 let request_file = file => {
@@ -208,20 +206,8 @@
                 };
 
                 let refresh_serach_list = () => {
-                    let searches = search_box.value.split(/\s+/).filter(x => x).map(x => x.trim());
-                    let all_hits = searches.map(x => {
-                        let hits = fuzzysort.go(x, keywords);
-                        hits = new Set(hits.flatMap(x => db[x.target]));
-                        return hits;
-                    });
-                    let hits = [];
-                    if (all_hits.length > 0) {
-                        hits = [...all_hits[0]];
-                        for (let i = 1; i < all_hits.length; i++) {
-                            hits = hits.filter(x => all_hits[i].has(x));
-                        }
-                    }
-
+                    let search = (search_box.value || "").trim();
+                    let hits = db.filter(x => x.includes(search));
                     search_list.innerHTML = '';
                     for (let i = 0; i < hits.length; i++) {
                         let match = hits[i];
