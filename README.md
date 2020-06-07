@@ -4,5 +4,7 @@ md-search lets you keep a folder of markdown files and search them by the keywor
 
 ## Usage
 
-Run `node server.js <folder> -p <port>`.
+Run `node server.js <folder> <port>` for http.
+
+Run `node server.js <folder> <port> -k <key> -c <chain>` for https.
 

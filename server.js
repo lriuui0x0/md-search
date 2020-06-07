@@ -2,24 +2,14 @@ let fs = require('fs');
 let path = require('path');
 let yargs = require('yargs');
 let express = require('express');
+let https = require('https');
 let matter = require('gray-matter');
 let chokidar = require('chokidar');
 
-if (yargs.argv._.length !== 1) {
-    throw 'Needs exactly one document root folder';
-}
 let root = yargs.argv._[0];
-if (!fs.existsSync(root) || !fs.lstatSync(root).isDirectory())
-{
-    throw 'Root folder is not a directory';
-}
-if (!yargs.argv.p) {
-    throw 'Needs server port'
-}
-let server_port = yargs.argv.p;
-if (typeof(server_port) !== "number") {
-    throw 'Server port is not number'
-}
+let port = yargs.argv._[1];
+let key = yars.argv.k;
+let chain = yars.argv.c;
 
 let walk_dir = (dir, callback) => {
     fs.readdirSync(dir).forEach(filename => {
@@ -116,5 +106,16 @@ server.get('/*', (req, res) => {
     }
 });
 
-server.listen(server_port);
+if (key && chain)
+{
+    let tls_options = {
+        key: fs.readFileSync(key),
+        cert: fs.readFileSync(chain),
+    };
+    https.createServer(tls_options, server).listen(port);
+}
+else
+{
+    server.listen(port);
+}
 
