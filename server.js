@@ -8,8 +8,8 @@ let chokidar = require('chokidar');
 
 let root = yargs.argv._[0];
 let port = yargs.argv._[1];
-let key = yars.argv.k;
-let chain = yars.argv.c;
+let chain = yargs.argv.chain;
+let key = yargs.argv.key;
 
 let walk_dir = (dir, callback) => {
     fs.readdirSync(dir).forEach(filename => {
@@ -109,8 +109,8 @@ server.get('/*', (req, res) => {
 if (key && chain)
 {
     let tls_options = {
-        key: fs.readFileSync(key),
         cert: fs.readFileSync(chain),
+        key: fs.readFileSync(key),
     };
     https.createServer(tls_options, server).listen(port);
 }
